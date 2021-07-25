@@ -5,6 +5,7 @@ import com.ttdys.common.consts.CommonConst;
 import com.ttdys.common.exception.ErrorCode;
 import com.ttdys.common.exception.ServiceException;
 import com.ttdys.common.util.ClassUtil;
+import com.ttdys.common.util.CommonUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.poifs.filesystem.FileMagic;
@@ -82,11 +83,13 @@ public class ExcelUtil {
             return result;
         }
         //开始解析
-        Map<String, Field> fieldMap = ClassUtil.declaredFieldMap(clz);
+        Map<String, Field> fieldMap = ClassUtil.declaredFieldMap(clz, true);
         for(int i = content_row_idx; i <= maxRow; i++) {
             T entity = parseRow(sheet.getRow(i), tplDescriptorMap, fieldMap, clz);
             result.add(entity);
         }
+        //关闭workbook
+        CommonUtil.quietClose(workbook);
         log.info("解析Excel成功，Excel<{}>, Template<{}>, Class<{}>", excel.getName(), template.getName(), clz);
         return result;
     }
@@ -136,6 +139,7 @@ public class ExcelUtil {
      */
     private static <T> T parseRow(Row row, Map<Integer, TemplateDescriptor> tplFieldMap, Map<String, Field> fieldMap, Class<T> clz) {
         T entity = ClassUtil.newInstance(clz);
+        //解析每个单元格
         for(Cell cell : row) {
             TemplateDescriptor descriptor = tplFieldMap.get(cell.getColumnIndex());
             if(descriptor == null)
@@ -157,9 +161,6 @@ public class ExcelUtil {
             //单元格为空，直接返回
             if(val == null)
                 return;
-            if(!field.isAccessible()) {
-                field.setAccessible(true);
-            }
             //同类型，直接设置值
             if(val.getClass() == field.getType()) {
                 field.set(t, val);

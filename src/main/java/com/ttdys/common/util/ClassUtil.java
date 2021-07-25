@@ -22,7 +22,9 @@ public class ClassUtil {
     };
 
 
-    /** 通Class.newInstance，将异常转为RuntimeException */
+    /**
+     * 同Class.newInstance，只是将异常转为RuntimeException
+     */
     public static <T> T newInstance(Class<T> clz) {
         try {
             return clz.newInstance();
@@ -32,13 +34,26 @@ public class ClassUtil {
         }
     }
 
-    public static Map<String, Field> declaredFieldMap(Class<?> clz) {
+    /**
+     * 获取类的属性map，key值为属性名
+     * @param clz 类
+     * @param setVisible 是否将Field设置为可见
+     * @return Map<String, Field>
+     */
+    public static Map<String, Field> declaredFieldMap(Class<?> clz, boolean setVisible) {
         Map<String, Field> fieldMap = new HashMap<>();
         Field[] fields = clz.getDeclaredFields();
         for(Field field : fields) {
+            if(!field.isAccessible() && setVisible) {
+                field.setAccessible(true);
+            }
             fieldMap.put(field.getName(), field);
         }
         return fieldMap;
+    }
+
+    public static Map<String, Field> declaredFieldMap(Class<?> clz) {
+        return declaredFieldMap(clz, false);
     }
 
     public static boolean isPrimitiveNumber(Class<?> clz) {
