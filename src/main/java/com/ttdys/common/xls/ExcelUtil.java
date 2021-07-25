@@ -1,6 +1,7 @@
 package com.ttdys.common.xls;
 
 import com.ttdys.common.Test;
+import com.ttdys.common.consts.CommonConst;
 import com.ttdys.common.exception.ErrorCode;
 import com.ttdys.common.exception.ServiceException;
 import com.ttdys.common.util.ClassUtil;
@@ -8,15 +9,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.poifs.filesystem.FileMagic;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.core.convert.ConversionService;
-import org.springframework.core.convert.converter.GenericConverter;
 import org.springframework.core.convert.support.DefaultConversionService;
+import org.springframework.lang.Nullable;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.math.BigInteger;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -25,7 +27,7 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 
 /**
  * Excel解析
- * 除非特殊说明，所有方法传递null参数都会抛出NullPointerException
+ * 除非特殊说明(@Nullable)，所有方法传递null参数都会抛出NullPointerException
  */
 @Slf4j
 public class ExcelUtil {
@@ -35,6 +37,10 @@ public class ExcelUtil {
     private static final int template_row_idx = 1;
     /** 模板占位符 */
     private static final String template_match_pattern = "^\\{.+}$";
+    /** 自动类型转换,用于字符串和数值间的转换 */
+    private static final ConversionService conversionService = new DefaultConversionService();
+    /** 日期转换类，key为日期格式pattern */
+    private static final Map<String, DateTimeFormatter> dateTimeFormatterCache = new HashMap<>();
 
     /**
      * 判断Excel是否为xlsx类型
@@ -86,7 +92,13 @@ public class ExcelUtil {
 
 
 
-    /** 解析模板文件，返回idx-field map */
+
+
+//---------------- private methods -----------------------------------//
+
+    /**
+     * 解析模板文件，返回idx-field map
+     */
     private static List<TemplateDescriptor> parseTemplate(File template) {
         List<TemplateDescriptor> descriptors = new ArrayList<>();
         Workbook workbook = getWorkbook(template);
@@ -110,6 +122,7 @@ public class ExcelUtil {
             fieldName = fieldName.substring(1, fieldName.length() - 1).trim();
             //单元格格式
             String format = cell.getCellStyle().getDataFormatString();
+            System.out.println(format);
             //descriptor
             TemplateDescriptor descriptor = new TemplateDescriptor(cell.getColumnIndex(), fieldName, format);
             descriptors.add(descriptor);
@@ -117,32 +130,79 @@ public class ExcelUtil {
         return descriptors;
     }
 
-    /** 解析一行数据 */
+    /**
+     * 解析一行数据
+     */
     private static <T> T parseRow(Row row, Map<Integer, TemplateDescriptor> tplFieldMap, Map<String, Field> fieldMap, Class<T> clz) {
         T entity = ClassUtil.newInstance(clz);
         for(Cell cell : row) {
-            String fieldName = tplFieldMap.get(cell.getColumnIndex()).getFieldName();
-            if(isBlank(fieldName))
+            TemplateDescriptor descriptor = tplFieldMap.get(cell.getColumnIndex());
+            if(descriptor == null)
                 continue;
-            Field field = fieldMap.get(fieldName);
+            Field field = fieldMap.get(descriptor.getFieldName());
             if(field == null)
                 continue;
-            setFieldWithCell(entity, field, cell);
+            setFieldValue(entity, field, cell, descriptor);
         }
         return entity;
     }
 
-    /** 根据cell值设置对象属性值，该方法会吞掉解析异常，以保证后面列继续解析 */
-    private static <T> void setFieldWithCell(T t, Field field, Cell cell) {
+    /**
+     * 根据cell值设置对象属性值，该方法会吞掉解析异常，以保证后面列继续解析
+     */
+    private static <T> void setFieldValue(T t, Field field, Cell cell, TemplateDescriptor descriptor) {
         try {
             Object val = getCellValue(cell);
+            //单元格为空，直接返回
+            if(val == null)
+                return;
             if(!field.isAccessible()) {
                 field.setAccessible(true);
             }
-            field.set(t, val);
+            //同类型，直接设置值
+            if(val.getClass() == field.getType()) {
+                field.set(t, val);
+                return;
+            }
+            //日期类型转换单独处理
+            if(val instanceof Date || field.getType() == Date.class) {
+                String pattern = isBlank(descriptor.getFormat()) ? CommonConst.PATTERN_DATETIME : transformDatePattern(descriptor.getFormat());
+                DateTimeFormatter dateTimeFormatter = dateTimeFormatterCache.computeIfAbsent(pattern, DateTimeFormatter::ofPattern);
+                if(val instanceof Date) { //日期转字符串
+                    String date = dateTimeFormatter.format(((Date) val).toInstant());
+                    field.set(t, date);
+                } else { //字符串转日期
+                    LocalDateTime localDateTime = LocalDateTime.parse((String) val, dateTimeFormatter);
+                    Date date = Date.from(localDateTime.atZone(ZoneId.systemDefault()).toInstant());
+                    field.set(t, date);
+                }
+            } else {
+                //其他类型转换使用spring类型转换
+                if(ClassUtil.isNumber(field.getType()) && val instanceof String) {
+                    //处理千分符
+                    val = ((String) val).replaceAll(",", "");
+                }
+                Object convertedVal = conversionService.convert(val, field.getType());
+                field.set(t, convertedVal);
+            }
         } catch (Exception e) {
             log.error("解析[{}]列数据报错, continue", cell.getColumnIndex(), e);
         }
+    }
+
+    /**
+     * 将excel日期pattern转为java pattern
+     */
+    private static String transformDatePattern(@Nullable String xlsPattern) {
+        if(isBlank(xlsPattern))
+            return null;
+        String pattern = xlsPattern.split(";")[0];
+        String[] dateWithTime = pattern.split("\\\\ ");
+        String date = dateWithTime[0];
+        String time = dateWithTime[1];
+        date = date.replaceAll("m", "M");
+        time = time.replaceAll("h", "H");
+        return date + " " + time;
     }
 
     private static Object getCellValue(Cell cell) {
@@ -173,14 +233,10 @@ public class ExcelUtil {
 
     public static void main(String[] args) throws IOException, InvalidFormatException {
         File tmp = new File("E:\\tmp\\tmp.xlsx");
-        File excel = new File("E:\\tmp\\import2.xls");
-//        List<Test> res = parse(excel, tmp, Test.class);
-//        System.out.println(res);
-        String i = "2020-07-25T10:00:00";
-        DefaultConversionService conversionService = new DefaultConversionService();
-        System.out.println(conversionService.canConvert(String.class, Date.class));
-        Date j = conversionService.convert(i, Date.class);
-        System.out.println(j);
+        File excel = new File("E:\\tmp\\import.xlsx");
+        List<Test> res = parse(excel, tmp, Test.class);
+        System.out.println(res);
+
     }
 
 }

@@ -11,6 +11,17 @@ import java.util.Map;
 @Slf4j
 public class ClassUtil {
 
+    private static final Class<?>[] primitiveNumberTypes = {
+        byte.class,
+        char.class,
+        short.class,
+        int.class,
+        long.class,
+        float.class,
+        double.class
+    };
+
+
     /** 通Class.newInstance，将异常转为RuntimeException */
     public static <T> T newInstance(Class<T> clz) {
         try {
@@ -30,6 +41,17 @@ public class ClassUtil {
         return fieldMap;
     }
 
+    public static boolean isPrimitiveNumber(Class<?> clz) {
+        for(Class<?> pri : primitiveNumberTypes) {
+            if(pri == clz)
+                return true;
+        }
+        return false;
+    }
+
+    public static boolean isNumber(Class<?> clz) {
+        return Number.class.isAssignableFrom(clz) || isPrimitiveNumber(clz);
+    }
 
     private ClassUtil() {}
 }

@@ -55,9 +55,11 @@ public class StringToDateConvertor implements GenericConverter {
 
     public static void main(String[] args) {
         DefaultConversionService service = new DefaultConversionService();
-        service.addConverter(new StringToDateConvertor());
-        String date = "2021-07-25 16:10:00";
-        Date d = service.convert(date, Date.class);
-        System.out.println(d);
+//        service.addConverter(new StringToDateConvertor());
+//        String date = "2021-07-25 16:10:00";
+//        Date d = service.convert(date, Date.class);
+        String s = "2222";
+        char c = service.convert(s, char.class);
+        System.out.println(c);
     }
 }
