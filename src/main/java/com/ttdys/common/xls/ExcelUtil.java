@@ -66,6 +66,7 @@ public class ExcelUtil {
      * @return 解析结果
      */
     public static <T> List<T> parse(File excel, File template, Class<T> clz) {
+        log.info("开始解析Excel<{}>, Template<{}>, Class<{}>", excel.getName(), template.getName(), clz);
         //解析结果
         List<T> result = new ArrayList<>();
         //模板信息
@@ -77,7 +78,7 @@ public class ExcelUtil {
         int maxRow = sheet.getLastRowNum();
         //文件为空判断
         if(maxRow < content_row_idx) {
-            log.warn("Excel内容为空");
+            log.warn("Excel<{}>内容为空", excel.getName());
             return result;
         }
         //开始解析
@@ -86,6 +87,7 @@ public class ExcelUtil {
             T entity = parseRow(sheet.getRow(i), tplDescriptorMap, fieldMap, clz);
             result.add(entity);
         }
+        log.info("解析Excel成功，Excel<{}>, Template<{}>, Class<{}>", excel.getName(), template.getName(), clz);
         return result;
     }
 
@@ -111,18 +113,17 @@ public class ExcelUtil {
             //获取属性名
             String fieldName = cell.getStringCellValue();
             if(isBlank(fieldName)) {
-                log.warn("模板[{}]列配置为空，ignored！", cell.getColumnIndex());
+                log.warn("模板<{}>[{}]列配置为空，ignored！", template.getName(), cell.getColumnIndex());
                 continue;
             }
             fieldName = fieldName.trim();
             if(!fieldName.matches(template_match_pattern)) {
-                log.warn("模板[{}]列配置有误，请使用{field}格式，ignored！", cell.getColumnIndex());
+                log.warn("模板<{}>[{}]列配置有误，请使用{field}格式，ignored！", template.getName(), cell.getColumnIndex());
                 continue;
             }
             fieldName = fieldName.substring(1, fieldName.length() - 1).trim();
             //单元格格式
             String format = cell.getCellStyle().getDataFormatString();
-            System.out.println(format);
             //descriptor
             TemplateDescriptor descriptor = new TemplateDescriptor(cell.getColumnIndex(), fieldName, format);
             descriptors.add(descriptor);
@@ -186,7 +187,7 @@ public class ExcelUtil {
                 field.set(t, convertedVal);
             }
         } catch (Exception e) {
-            log.error("解析[{}]列数据报错, continue", cell.getColumnIndex(), e);
+            log.error("解析[{}]行[{}]列数据报错, continue", cell.getRowIndex(), cell.getColumnIndex(), e);
         }
     }
 
@@ -224,7 +225,7 @@ public class ExcelUtil {
         try {
             return WorkbookFactory.create(file);
         } catch (IOException e) {
-            log.error("创建Workbook失败", e);
+            log.error("文件<{}>创建Workbook失败", file.getName(), e);
             throw new ServiceException(ErrorCode.EXCEL_PARSE_ERROR);
         }
     }
